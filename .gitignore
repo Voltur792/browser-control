@@ -7,7 +7,6 @@
 /scripts/
 /DESIGN.md
 /UX-CONTRACT.md
-/ui/web/extension-setup.zip
 browser-extension/native-host/portable/
 browser-extension/native-host/publish/
 browser-extension/native-host/**/*.pdb

@@ -1,7 +1,7 @@
 [plugin]
 id = "browser-control"
 name = "Browser Control"
-version = "0.1.29"
+version = "0.1.30"
 description = "Open websites and search in simple mode, or manage browser tabs and pages through an optional local extension."
 author = "Voltur"
 license = "MIT"
