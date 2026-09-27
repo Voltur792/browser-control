@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Управление браузером</title>
+  <script src="http://astra-plugin.localhost/bridge/astra-bridge.js"></script>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <main class="page">
+    <header class="page-header">
+      <h1>Управление браузером</h1>
+      <p>Команды для установленных браузеров</p>
+    </header>
+
+    <section class="mode-section" aria-labelledby="mode-title">
+      <h2 id="mode-title" class="sr-only">Режим управления</h2>
+      <div class="mode-picker" role="group" aria-label="Режим управления браузером">
+        <button class="mode-option" type="button" aria-pressed="true" data-mode="simple">
+          <span class="option-title">Базовый режим</span><span class="option-note">Открытие сайтов и поиск</span>
+        </button>
+        <button class="mode-option" type="button" aria-pressed="false" data-mode="extension">
+          <span class="option-title">С расширением</span><span class="option-note">Вкладки и содержимое страниц</span>
+        </button>
+      </div>
+    </section>
+
+    <section class="connection-row" aria-label="Состояние соединения">
+      <div class="extension-state" role="status" aria-live="polite">
+        <span id="extension-dot" class="connection-dot" aria-hidden="true"></span>
+        <strong id="extension-title">Проверяем связь…</strong>
+      </div>
+      <span class="connection-divider" aria-hidden="true"></span>
+      <div class="browser-picker">
+        <span class="browser-caption">Браузер:</span>
+        <button id="browser-trigger" class="browser-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+          <span id="browser-current">По умолчанию</span><span aria-hidden="true">⌄</span>
+        </button>
+        <div id="browser-options" class="browser-options" role="listbox" aria-label="Выберите браузер" hidden>
+          <button type="button" data-browser="default" aria-pressed="true">По умолчанию</button>
+          <button type="button" data-browser="yandex" aria-pressed="false">Яндекс Браузер</button>
+          <button type="button" data-browser="chrome" aria-pressed="false">Google Chrome</button>
+          <button type="button" data-browser="edge" aria-pressed="false">Microsoft Edge</button>
+          <button type="button" data-browser="brave" aria-pressed="false">Brave</button>
+          <button type="button" data-browser="opera" aria-pressed="false">Opera</button>
+          <button type="button" data-browser="vivaldi" aria-pressed="false">Vivaldi</button>
+          <button type="button" data-browser="firefox" aria-pressed="false">Firefox</button>
+        </div>
+      </div>
+      <span class="plugin-state" role="status" aria-live="polite"><span id="plugin-dot" class="plugin-dot" aria-hidden="true"></span><span id="plugin-title">Плагин Astra загружается…</span></span>
+    </section>
+
+    <section class="examples" aria-labelledby="examples-title">
+      <h2 id="examples-title">Попробуйте команду</h2>
+      <p id="mode-hint">Скажите одну из команд, чтобы проверить работу:</p>
+      <ul class="example-list">
+        <li><span class="command">Открой YouTube</span></li>
+        <li><span class="command">Найди погоду в Казани</span></li>
+        <li class="advanced-example" hidden><span class="command">Покажи вкладки во всех окнах</span></li>
+        <li class="advanced-example" hidden><span class="command">Что открыто в окне 2?</span></li>
+        <li class="advanced-example" hidden><span class="command">Найди вкладку ВКонтакте и перейди на неё</span></li>
+        <li class="advanced-example" hidden><span class="command">Прочитай страницу</span></li>
+        <li class="advanced-example" hidden><span class="command">Нажми на Войти</span></li>
+        <li class="advanced-example" hidden><span class="command">Какая вкладка сейчас воспроизводит звук?</span></li>
+        <li class="advanced-example" hidden><span class="command">Найди и открой мессенджер на текущей вкладке</span></li>
+        <li class="advanced-example" hidden><span class="command">Покажи контакты и чаты, которые видны на странице</span></li>
+        <li class="advanced-example" hidden><span class="command">Введи запрос «погода» в поле поиска во вкладке 3</span></li>
+        <li class="advanced-example" hidden><span class="command">Найди поле ввода сообщения</span></li>
+        <li class="advanced-example" hidden><span class="command">Найди на странице слово «мессенджер»</span></li>
+        <li class="advanced-example" hidden><span class="command">Сотри текст из поля сообщения</span></li>
+        <li class="advanced-example" hidden><span class="command">Закрой в окне 2 вкладки 19 и 20</span></li>
+      </ul>
+    </section>
+
+    <section id="extension-guide" class="extension-guide" aria-labelledby="guide-title" hidden>
+      <div class="guide-heading"><h2 id="guide-title">Как настроить</h2></div>
+      <ol class="steps">
+        <li><span class="step-no">1</span><span>Нажмите «Установить расширение». Если браузер открыл пустую вкладку, скопируйте адрес ниже и вставьте его в адресную строку браузера.</span></li>
+        <li><span class="step-no">2</span><span>В браузере включите режим разработчика, нажмите «Загрузить распакованное расширение» и выберите открытую папку.</span></li>
+        <li><span class="step-no">3</span><span>Перезапустите браузер, затем нажмите «Проверить подключение».</span></li>
+      </ol>
+      <div class="extension-address">
+        <label for="extensions-url">Страница расширений выбранного браузера</label>
+        <div class="extension-address-row">
+          <input id="extensions-url" type="text" readonly spellcheck="false" value="browser://extensions/">
+          <button id="copy-extensions-url" class="button button-secondary" type="button">Скопировать адрес</button>
+        </div>
+      </div>
+      <div class="guide-actions">
+        <button id="install-extension" class="button button-primary" type="button">Установить расширение</button>
+        <button id="open-folder" class="button button-secondary" type="button">Открыть папку расширения</button>
+        <button id="test-connection" class="button button-secondary" type="button">Проверить подключение</button>
+      </div>
+      <p class="permission-note">Установщик работает без .NET Runtime и прав администратора. Браузер требует вручную подтвердить загрузку расширения.</p>
+    </section>
+
+    <p id="feedback" class="feedback" role="status" aria-live="polite"></p>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

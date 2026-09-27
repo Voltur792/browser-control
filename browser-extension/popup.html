@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Связь с Astra</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <header>
+      <img class="mark" src="icons/icon48.png" width="36" height="36" alt="">
+      <div><h1>Browser Control</h1><p id="browser">Проверяем браузер…</p></div>
+    </header>
+    <section class="status" aria-live="polite">
+      <span id="dot" class="dot"></span>
+      <div><strong id="state">Проверяем связь…</strong><p id="detail">Подключение к плагину Astra</p></div>
+    </section>
+    <button id="reconnect" type="button">Проверить подключение</button>
+    <p class="foot">Расширение работает только по команде из Astra и не собирает историю браузера.</p>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

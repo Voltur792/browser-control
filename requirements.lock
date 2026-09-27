@@ -1,0 +1,7 @@
+# Resolved from requirements.txt using the local Astra Python plugin lock.
+astra-plugin-sdk==0.6.1
+grpcio==1.83.1
+grpcio-tools==1.83.1
+protobuf==7.36.1
+setuptools==84.0.0
+typing-extensions==4.16.0

@@ -1,0 +1,25 @@
+# Build artifacts
+*.astraplugin
+/.appdata/
+/.dotnet-cli/
+/.nuget-packages/
+/tests/
+/scripts/
+/DESIGN.md
+/UX-CONTRACT.md
+/ui/web/extension-setup.zip
+browser-extension/native-host/portable/
+browser-extension/native-host/publish/
+browser-extension/native-host/**/*.pdb
+browser-extension/native-host/**/*.dll
+browser-extension/native-host/**/*.deps.json
+browser-extension/native-host/**/*.runtimeconfig.json
+/.dotnet-cli/
+/.nuget/
+/.appdata/
+browser-extension/native-host/bin/
+browser-extension/native-host/obj/
+
+__pycache__/
+*.pyc
+.venv/

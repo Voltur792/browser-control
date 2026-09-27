@@ -1,0 +1,33 @@
+[plugin]
+id = "browser-control"
+name = "Browser Control"
+version = "0.1.29"
+description = "Open websites and search in simple mode, or manage browser tabs and pages through an optional local extension."
+author = "Voltur"
+license = "MIT"
+
+[entry]
+command = "python"
+args = ["-m", "src.plugin"]
+runtimes = ["python"]
+
+# `[capabilities]` is what the daemon may call INTO this plugin.
+[capabilities]
+tools = true
+ui_contributions = true
+
+# `[permissions]` is the other direction: which host RPCs the plugin may call
+# out to. Default-deny — a manifest with no `[permissions]` section may call
+# nothing beyond Register, PluginLog and GetPluginSelfConfig, so declaring a
+# capability above is not what lets the matching host call through. This is.
+#
+# `reason` is shown to the user at install time and is the entire basis of
+# their consent. Rewrite these to say what YOUR plugin does with the call, and
+# delete any line you do not actually need.
+[permissions]
+
+# The plugin uses only its own loopback bridge and the native browser extension.
+
+[platform]
+os = ["windows"]
+arch = ["x86_64"]
