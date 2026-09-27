@@ -40,6 +40,8 @@ Firefox работает только в базовом режиме.
 
 Сообщайте об ошибках во вкладке [Issues](https://github.com/Voltur792/browser-control/issues).
 
+Лицензия проекта: [MIT](LICENSE).
+
 ---
 
 [Поддержать разработку на Boosty](https://boosty.to/voltur/donate)
