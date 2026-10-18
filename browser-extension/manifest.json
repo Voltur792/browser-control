@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Astra Browser Control",
-  "version": "0.1.21",
+  "version": "1.0.0",
   "description": "Связывает браузер с локальным плагином Astra для голосовых команд.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqgq8dSrT1b0AME5b92CsXGfqe430uAUGdV32KdWAjRRmVc/CjVWCgjyceMPdPA/9KLKJdBOezHNTr/uVy3IUTi6iOLsOKtodsmkjtd166VZxG93hRoTZrdQa94hBR6rkkVQwvqUGQDtqbxYkHv97e5n3JPwipWfFpTQ7Iorn9gEgN6LMRVvWqGhBvCLmxWnNUyxgKCDw2vXXts/kcMG/oGyuElq0jqV9FJs7r/euktGc0kD1YuOQ5ILsyfRbjwEaUGm/1BiBZy+d+QJqAVp9ka1h3ivrFuZd31ITHpS4iGt+9Ik5JpF9tCqS8SRnWdU/FAZ9QDlLhnCpw5H9zy76AQIDAQAB",
   "permissions": [
@@ -9,7 +9,8 @@
     "tabs",
     "scripting",
     "storage",
-    "alarms"
+    "alarms",
+    "sessions"
   ],
   "host_permissions": [
     "http://*/*",

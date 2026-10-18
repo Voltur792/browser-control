@@ -17,7 +17,8 @@ function publicSite(value) {
 }
 
 function redactPageText(value, dropSensitiveLines = true) {
-  const sensitiveWords = /(?:парол|одноразов|(?:^|[^\p{L}])код(?:$|[^\p{L}])|код\s*(?:подтвержден|доступа|безопасност)|номер\s*карт|срок\s*действия|секретн|токен|password|passcode|\bcode\b|verification\s*code|security\s*code|one.?time.?code|\botp\b|\bcvv\b|\bcvc\b|\bpin\b|api.?key|secret|access.?token|card\s*number|expiry)/iu;
+  // Mirrors src/privacy.py: bare "code"/"код" would hide titles like "Visual Studio Code".
+  const sensitiveWords = /(?:парол|одноразов|(?:ваш|your|sms|смс)\s*(?:код|code)|^\s*(?:код|code|pin|пин)\s*[:：#№]|код\s*(?:подтвержден|доступа|безопасност|из\s*смс)|пин.?код|pin.?code|\bpin\s*[:：]|номер\s*карт|срок\s*действия|секретн|токен|password|passcode|verification\s*code|confirmation\s*code|security\s*code|auth(?:entication)?\s*code|one.?time.?code|\botp\b|\bcvv\b|\bcvc\b|api.?key|secret|access.?token|card\s*number|expiry)/iu;
   const text = String(value || "").slice(0, 20000);
   let hideFollowingLines = 0;
   return text.split(/\r?\n/).map((line) => {
@@ -33,7 +34,7 @@ function redactPageText(value, dropSensitiveLines = true) {
       .replace(/https?:\/\/[^\s<>"']+/gi, (url) => publicSite(url))
       .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[адрес почты скрыт]")
       .replace(/\b(?=[A-Za-z0-9_-]{24,}\b)(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{24,}\b/g, "[ключ скрыт]")
-      .replace(/(?:\d[ -]?){3,19}/g, (sequence) => (sequence.replace(/\D/g, "").length >= 3 ? "[число скрыто]" : sequence));
+      .replace(/(?:\d[ -]?){3,19}/g, (sequence) => (sequence.replace(/\D/g, "").length >= 6 ? "[число скрыто]" : sequence));
   }).join("\n");
 }
 
@@ -60,7 +61,7 @@ function sensitiveUrl(value) {
 
 async function blockSensitivePage(tabId, tabUrl) {
   if (sensitiveUrl(tabUrl)) throw new Error("Работа с защищённой страницей отключена для сохранения приватных данных.");
-  const frames = await chrome.scripting.executeScript({
+  const frames = await injectScript({
     target: { tabId, allFrames: true },
     func: () => {
       const sensitive = /(?:парол|одноразов|код\s*(?:подтвержден|доступа|безопасност)|номер\s*карт|password|passcode|verification.?code|one.?time.?code|\botp\b|\bcvv\b|\bcvc\b|\bpin\b|card|credit|debit|payment|security.?code)/i;
@@ -143,7 +144,7 @@ function connectNative() {
       scheduleReconnect();
     });
     browserLabel().then((browser) => {
-      if (nativePort) nativePort.postMessage({ type: "browser_info", browser: browser.name, browser_code: browser.code });
+      if (nativePort) nativePort.postMessage({ type: "browser_info", browser: browser.name, browser_code: browser.code, version: chrome.runtime.getManifest().version });
     });
     return true;
   } catch (error) {
@@ -198,9 +199,28 @@ async function orderedTabs() {
 
 function requireWebTab(tab) {
   if (!/^https?:\/\//i.test(tab.url || "")) throw new Error("Эта команда работает только на обычных веб-страницах");
+  // A discarded or frozen background tab never runs injected scripts until it is shown.
+  if (tab.discarded || tab.frozen) {
+    throw new Error(`Вкладка «${(tab.title || "Без названия").slice(0, 80)}» выгружена браузером для экономии памяти. Сначала переключитесь на неё, затем повторите команду.`);
+  }
 }
 
-function safePageSnapshot(query = "") {
+const INJECT_TIMEOUT_MS = 12000;
+
+// chrome.scripting.executeScript hangs on a page that is frozen or busy; give up with a
+// clear message well before the plugin's own 35-second request timeout.
+function injectScript(options, timeoutMs = INJECT_TIMEOUT_MS) {
+  let timer;
+  return Promise.race([
+    chrome.scripting.executeScript(options),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Страница не ответила вовремя: возможно, вкладка в фоне заморожена браузером или страница очень тяжёлая. Переключитесь на вкладку и повторите.")), timeoutMs);
+    })
+  ]).finally(() => clearTimeout(timer));
+}
+
+function safePageSnapshot(query = "", offset = 0) {
+  const PART = 15000;
   const sensitive = /(?:парол|одноразов|код\s*(?:подтвержден|доступа|безопасност)|номер\s*карт|password|passcode|verification.?code|one.?time.?code|\botp\b|\bcvv\b|\bcvc\b|\bpin\b|card|credit|debit|payment|security.?code)/i;
   const visible = (el) => {
     const style = getComputedStyle(el);
@@ -219,7 +239,8 @@ function safePageSnapshot(query = "") {
   const lines = [];
   const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
   let length = 0;
-  for (let node = walker.nextNode(), count = 0; node && count < 18000 && length < 16000; node = walker.nextNode(), count++) {
+  const started = performance.now();
+  for (let node = walker.nextNode(), count = 0; node && count < 60000 && length < 300000 && performance.now() - started < 2500; node = walker.nextNode(), count++) {
     const parent = node.parentElement;
     if (!parent || parent.closest("input,textarea,select,[contenteditable],[role='textbox'],[data-private],[data-sensitive],script,style,noscript,[aria-hidden='true']")) continue;
     if (!visible(parent)) continue;
@@ -228,7 +249,9 @@ function safePageSnapshot(query = "") {
     lines.push(value);
     length += value.length + 1;
   }
-  const text = lines.join("\n").slice(0, 16000);
+  const fullText = lines.join("\n");
+  const start = Math.max(0, Math.min(Number(offset) || 0, fullText.length));
+  const text = fullText.slice(start, start + PART);
   const needle = String(query || "").replace(/\s+/g, " ").trim().toLocaleLowerCase();
   const matches = needle ? lines.filter((line) => line.toLocaleLowerCase().includes(needle)).slice(0, 12).map((line) => line.slice(0, 220)) : [];
   const interactive = needle ? [...document.querySelectorAll("a,button,[role='button'],[role='link']")].filter((el) => {
@@ -236,7 +259,15 @@ function safePageSnapshot(query = "") {
     const label = el.innerText || el.getAttribute("aria-label") || el.getAttribute("title") || "";
     return label.toLocaleLowerCase().includes(needle);
   }).slice(0, 10).map((el) => ({ text: (el.innerText || el.getAttribute("aria-label") || "").trim().slice(0, 160), tag: el.tagName.toLowerCase(), role: el.getAttribute("role") || "" })) : [];
-  return { title: document.title || "", url: location.href, text, matches, interactive };
+  return { title: document.title || "", url: location.href, text, matches, interactive, total_length: fullText.length, offset: start, part_size: PART };
+}
+
+async function existingTab(tabId) {
+  try {
+    return await chrome.tabs.get(tabId);
+  } catch (_) {
+    throw new Error("Вкладка из показанного списка уже закрыта. Обновите список вкладок; ничего не изменено.");
+  }
 }
 
 async function removeTabsAndConfirm(tabIds) {
@@ -525,7 +556,7 @@ async function readPageOpenState(tabId, frameId, mode, elementId, deadlineMs = 0
   let timer;
   try {
     const injected = await Promise.race([
-      chrome.scripting.executeScript({
+      injectScript({
         target: { tabId, frameIds: [frameId] },
         args: [mode, elementId, label, targetPeerId],
         func: observePageOpenState
@@ -638,6 +669,220 @@ function describeClickResult(verification) {
     : `ОТКРЫТИЕ НЕ ПОДТВЕРЖДЕНО. ${verification.evidence} Не утверждайте, что чат или раздел открыт, и не повторяйте клик без проверки страницы.`;
 }
 
+// Collected inside the page: a short list of video/audio links with their titles.
+// Matching a spoken request against it happens in the extension (pickMedia), so the
+// model never has to read the page to start a video.
+function extractMediaItems(limit = 40) {
+  const mediaLink = /\/(?:watch|shorts|video|videos|clip|embed|track|album|playlist|music|audio|film|movie|episode)(?:[/?#_-]|$)|[?&]v=|[?&]z=video/i;
+  const normalize = (value) => String(value || "").normalize("NFKC").replace(/\s+/g, " ").trim();
+  const isAd = (el) => Boolean(el.closest("ytd-ad-slot-renderer,ytd-promoted-video-renderer,ytd-promoted-sparkles-web-renderer,ytd-in-feed-ad-layout-renderer,[data-ad],[data-testid*='advert' i]"));
+  const shown = (el) => {
+    const style = getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
+    return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+  };
+  const youtube = /(^|\.)youtube\.com$/i.test(location.hostname);
+  const anchors = youtube
+    ? document.querySelectorAll("a#video-title,a#video-title-link,a.yt-lockup-metadata-view-model-wiz__title,a.yt-lockup-metadata-view-model__title,a.yt-simple-endpoint#wc-endpoint,ytm-shorts-lockup-view-model a[href*='/shorts/']")
+    : document.querySelectorAll("a[href]");
+  const seen = new Set();
+  const items = [];
+  for (const anchor of anchors) {
+    if (!(anchor instanceof HTMLAnchorElement) || !/^https?:/i.test(anchor.href)) continue;
+    if (!youtube && !mediaLink.test(anchor.href)) continue;
+    if (isAd(anchor) || !shown(anchor)) continue;
+    const title = normalize(anchor.textContent) || normalize(anchor.getAttribute("title")) || normalize(anchor.getAttribute("aria-label"));
+    if (title.length < (youtube ? 2 : 4) || title.length > 220) continue;
+    let key = anchor.href;
+    try {
+      const url = new URL(anchor.href);
+      key = url.origin + url.pathname + (url.searchParams.get("v") || url.searchParams.get("z") || "");
+    } catch (_) {}
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push({ title: title.slice(0, 120), href: anchor.href, shorts: /\/shorts\//i.test(anchor.href) });
+    if (items.length >= limit) break;
+  }
+  return items;
+}
+
+function pickMedia(items, query) {
+  const normalize = (value) => String(value || "").normalize("NFKC").toLocaleLowerCase().replace(/ё/g, "е");
+  const stop = new Set(["видео", "ролик", "ролика", "видос", "про", "на", "с", "со", "и", "в", "включи", "запусти", "поставь", "открой", "посмотреть", "video", "the", "a", "play"]);
+  const words = (normalize(query).match(/[\p{L}\p{N}]+/gu) || []).filter((word) => !stop.has(word));
+  if (!words.length) return null;
+  const stem = (word) => (word.length >= 5 ? word.slice(0, Math.max(4, word.length - 2)) : word);
+  const phrase = words.join(" ");
+  const scored = items.map((item, index) => {
+    const title = normalize(item.title);
+    const titleWords = title.match(/[\p{L}\p{N}]+/gu) || [];
+    let hits = 0;
+    for (const word of words) {
+      if (titleWords.some((candidate) => candidate === word || (word.length >= 5 && candidate.startsWith(stem(word))))) hits++;
+    }
+    const score = hits / words.length + (titleWords.join(" ").includes(phrase) ? 1 : 0);
+    return { item, index, score };
+  }).filter(({ score }) => score >= 0.5)
+    .sort((left, right) => right.score - left.score || Number(left.item.shorts) - Number(right.item.shorts) || left.index - right.index);
+  if (!scored.length) return null;
+  return { item: scored[0].item, index: scored[0].index, alternatives: scored.length - 1 };
+}
+// end pickMedia
+
+function controlPageMedia(command) {
+  const media = [...document.querySelectorAll("video,audio")].filter((item) => item.currentSrc || item.src || item.readyState > 0);
+  if (!media.length) return { found: false };
+  if (command === "pause") {
+    const playing = media.filter((item) => !item.paused);
+    playing.forEach((item) => item.pause());
+    return { found: true, changed: playing.length };
+  }
+  const area = (item) => { const rect = item.getBoundingClientRect(); return rect.width * rect.height; };
+  const target = media.find((item) => !item.paused) || media.sort((left, right) => area(right) - area(left))[0];
+  if (!target.paused) return { found: true, changed: 0 };
+  return target.play().then(() => ({ found: true, changed: 1 }))
+    .catch((error) => ({ found: true, changed: 0, error: `Браузер не разрешил запуск без нажатия на странице (${error.name}). Нажмите на видео один раз или скажите «нажми Смотреть».` }));
+}
+
+// "Next/previous" in vertical video feeds. YouTube Shorts and TikTok have navigation
+// buttons; Instagram Reels and others are a scroll-snap list, so scroll the container
+// that holds the most visible video by one screen.
+function stepVideoFeed(direction) {
+  const down = direction === "next";
+  const shown = (el) => {
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    const style = getComputedStyle(el);
+    return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+  };
+  // YouTube ignores a bare el.click() on its Shorts arrows; a full pointer/mouse
+  // sequence at the button's centre is what its handlers listen to.
+  const press = (el) => {
+    const rect = el.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+      const Ctor = type.startsWith("pointer") && typeof PointerEvent === "function" ? PointerEvent : MouseEvent;
+      el.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, button: 0, buttons: type.endsWith("down") ? 1 : 0, pointerType: "mouse", view: window }));
+    }
+  };
+  const clickFirst = (selectors) => {
+    for (const selector of selectors) {
+      const el = [...document.querySelectorAll(selector)].find((item) => shown(item) && !item.disabled && item.getAttribute("aria-disabled") !== "true");
+      if (el) { press(el); return true; }
+    }
+    return false;
+  };
+  const host = location.hostname;
+  if (/(^|\.)youtube\.com$/i.test(host) && /^\/shorts\//i.test(location.pathname)) {
+    const ok = clickFirst(down
+      ? ["#navigation-button-down button", "#navigation-button-down [role='button']", "button[aria-label='Next video']", "button[aria-label='Следующее видео']"]
+      : ["#navigation-button-up button", "#navigation-button-up [role='button']", "button[aria-label='Previous video']", "button[aria-label='Предыдущее видео']"]);
+    if (ok) return { ok: true, how: "button" };
+  }
+  if (/(^|\.)tiktok\.com$/i.test(host)) {
+    if (clickFirst(down ? ["button[data-e2e='arrow-right']", "[data-e2e='arrow-right']"] : ["button[data-e2e='arrow-left']", "[data-e2e='arrow-left']"])) return { ok: true, how: "button" };
+  }
+  const area = (el) => {
+    const rect = el.getBoundingClientRect();
+    const width = Math.max(0, Math.min(rect.right, innerWidth) - Math.max(rect.left, 0));
+    const height = Math.max(0, Math.min(rect.bottom, innerHeight) - Math.max(rect.top, 0));
+    return width * height;
+  };
+  const video = [...document.querySelectorAll("video")].sort((left, right) => area(right) - area(left))[0];
+  let container = null;
+  for (let el = video?.parentElement; el; el = el.parentElement) {
+    const overflow = getComputedStyle(el).overflowY;
+    if ((overflow === "auto" || overflow === "scroll") && el.scrollHeight > el.clientHeight + 10) { container = el; break; }
+  }
+  if (!video) {
+    return { ok: false, error: "На вкладке не найдено ленты видео (Shorts, Reels, TikTok). Откройте ленту и повторите." };
+  }
+  if (container) {
+    // Instagram Reels and similar feeds are a scroll-snap list of full-height items.
+    container.scrollBy({ top: container.clientHeight * (down ? 1 : -1), behavior: "smooth" });
+    return { ok: true, how: "scroll" };
+  }
+  const key = down ? "ArrowDown" : "ArrowUp";
+  const target = document.activeElement && document.activeElement !== document.body ? document.activeElement : document;
+  for (const type of ["keydown", "keyup"]) {
+    target.dispatchEvent(new KeyboardEvent(type, { key, code: key, keyCode: down ? 40 : 38, which: down ? 40 : 38, bubbles: true, cancelable: true, composed: true }));
+  }
+  return { ok: true, how: "key" };
+}
+
+function submitFocusedField(fieldNumber) {
+  const isEditable = (el) => {
+    if (el instanceof HTMLInputElement) return !["password", "hidden", "file", "button", "submit", "reset", "checkbox", "radio"].includes(el.type);
+    return el instanceof HTMLTextAreaElement || el?.isContentEditable;
+  };
+  const visible = (el) => {
+    const style = getComputedStyle(el);
+    const rect = el.getBoundingClientRect();
+    return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0 && !el.disabled && !el.readOnly;
+  };
+  let el = document.activeElement;
+  if (fieldNumber > 0) {
+    const candidates = [...document.querySelectorAll("input,textarea,[contenteditable]:not([contenteditable='false']),[role='textbox']")].filter((item) => isEditable(item) && visible(item));
+    el = candidates[fieldNumber - 1];
+    if (!el) return { ok: false, error: "Номер поля устарел. Найдите поля ввода ещё раз." };
+  }
+  if (!el || !isEditable(el) || !visible(el)) return { ok: false, error: "Нет активного текстового поля. Укажите field_number из browser_find_text_fields." };
+  el.focus();
+  if (el instanceof HTMLInputElement && el.form) {
+    if (typeof el.form.requestSubmit === "function") el.form.requestSubmit();
+    else el.form.submit();
+    return { ok: true, message: "Форма отправлена. Проверьте страницу, прежде чем утверждать результат." };
+  }
+  const init = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
+  el.dispatchEvent(new KeyboardEvent("keydown", init));
+  el.dispatchEvent(new KeyboardEvent("keypress", init));
+  el.dispatchEvent(new KeyboardEvent("keyup", init));
+  return { ok: true, message: "Нажат Enter в поле. Проверьте страницу: не все сайты принимают такое нажатие; при необходимости нажмите кнопку «Отправить»." };
+}
+
+async function waitForTabComplete(tabId, deadlineMs, maxMs) {
+  const until = Math.min(Date.now() + maxMs, deadlineMs ? deadlineMs - 1500 : Infinity);
+  while (Date.now() < until) {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab) throw new Error("Вкладка закрылась во время загрузки");
+    if (tab.status === "complete") return tab;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return chrome.tabs.get(tabId);
+}
+
+async function mediaItemsInTab(tabId) {
+  const [injected] = await injectScript({ target: { tabId }, func: extractMediaItems });
+  return Array.isArray(injected?.result) ? injected.result : [];
+}
+
+// Focusing a window can drop it from maximized to a normal-sized window in some
+// Chromium builds; put a maximized or fullscreen window back the way it was.
+async function focusWindowKeepingState(windowId) {
+  const before = await chrome.windows.get(windowId).catch(() => null);
+  await chrome.windows.update(windowId, { focused: true });
+  if (before && (before.state === "maximized" || before.state === "fullscreen")) {
+    const after = await chrome.windows.get(windowId).catch(() => null);
+    if (after && after.state !== before.state) await chrome.windows.update(windowId, { state: before.state });
+  }
+}
+
+// The last media list shown for each tab, so "play video 3" opens exactly the link
+// that was listed even if the page re-rendered since.
+async function rememberMedia(tabId, items) {
+  try { await chrome.storage.session.set({ [`media:${tabId}`]: items.map(({ title, href }) => ({ title, href })) }); } catch (_) {}
+}
+
+async function rememberedMedia(tabId) {
+  try { return (await chrome.storage.session.get(`media:${tabId}`))[`media:${tabId}`] || null; } catch (_) { return null; }
+}
+
+async function tabFromMessage(message) {
+  if (Number.isInteger(message.chrome_tab_id)) return existingTab(message.chrome_tab_id);
+  return currentActiveTab();
+}
+
 async function handleCommand(message) {
   const action = message.action;
   const deadlineMs = Number(message.deadline_ms) || 0;
@@ -687,7 +932,7 @@ async function handleCommand(message) {
     }
     requireWebTab(sourceTab);
     await blockSensitivePage(sourceTab.id, sourceTab.url);
-    const scanned = await chrome.scripting.executeScript({
+    const scanned = await injectScript({
       target: { tabId: sourceTab.id, allFrames: true },
       args: [wanted, matchNumber],
       func: inspectClickableText
@@ -700,7 +945,7 @@ async function handleCommand(message) {
     requireTime();
     const elementId = found.element_id;
     const before = await readPageOpenState(sourceTab.id, frameId, "match", elementId, deadlineMs, found.matched_text || found.text);
-    const [clicked] = await chrome.scripting.executeScript({
+    const [clicked] = await injectScript({
       target: { tabId: sourceTab.id, frameIds: [frameId] },
       args: ["match", elementId, found.text, deadlineMs, found.matched_text],
       func: clickMarkedElement
@@ -715,12 +960,14 @@ async function handleCommand(message) {
   }
   if (action === "activate_tab") {
     const tabs = await orderedTabs();
-    const target = tabs[Number(message.tab_id)];
+    const target = Number.isInteger(message.chrome_tab_id)
+      ? await existingTab(message.chrome_tab_id)
+      : tabs[Number(message.tab_id)];
     if (!target || typeof target.id !== "number") throw new Error("Вкладка с таким номером не найдена");
-    if (typeof target.windowId === "number") await chrome.windows.update(target.windowId, { focused: true });
+    if (typeof target.windowId === "number") await focusWindowKeepingState(target.windowId);
     await chrome.tabs.update(target.id, { active: true });
     const windowNumber = [...new Set(tabs.map((tab) => tab.windowId))].indexOf(target.windowId) + 1;
-    return { ok: true, message: `Переключился на вкладку ${Number(message.tab_id) + 1}, окно ${windowNumber}` };
+    return { ok: true, message: `Переключился на вкладку ${Number(message.tab_id) + 1} «${(target.title || "Без названия").slice(0, 120)}», окно ${windowNumber}` };
   }
   if (action === "close_tab") {
     let target;
@@ -736,6 +983,16 @@ async function handleCommand(message) {
     return { ok: true, message: `Закрыл вкладку «${(target.title || "Без названия").slice(0, 120)}»` };
   }
   if (action === "close_tabs") {
+    if (Array.isArray(message.chrome_tab_ids)) {
+      // Stable Chrome ids from the list the user saw: positions may have shifted since.
+      const ids = message.chrome_tab_ids;
+      const shown = Array.isArray(message.tab_numbers_shown) ? message.tab_numbers_shown : [];
+      if (!ids.length || ids.some((id) => !Number.isInteger(id))) throw new Error("Передайте номера вкладок из списка");
+      const targets = [];
+      for (const id of ids) targets.push(await existingTab(id));
+      await removeTabsAndConfirm(targets.map((tab) => tab.id));
+      return { ok: true, message: `Закрыл вкладки: ${targets.map((tab, index) => `${shown[index] ?? ""} «${(tab.title || "Без названия").slice(0, 80)}»`.trim()).join(", ")}` };
+    }
     if (Array.isArray(message.tab_numbers)) {
       const numbers = [...new Set(message.tab_numbers.map(Number))];
       const requestedWindow = Number(message.window_number) || 0;
@@ -762,8 +1019,117 @@ async function handleCommand(message) {
     await removeTabsAndConfirm(targets.map((tab) => tab.id));
     return { ok: true, message: `Закрыл вкладки: ${targets.map((tab, index) => `${indexes[index] + 1} «${(tab.title || "Без названия").slice(0, 80)}»`).join(", ")}` };
   }
+  if (action === "tab_action") {
+    const kind = String(message.kind || "");
+    if (kind === "new") {
+      await chrome.tabs.create({ active: true });
+      return { ok: true, message: "Открыл новую вкладку" };
+    }
+    if (kind === "restore_closed") {
+      const restored = await chrome.sessions.restore();
+      const title = restored?.tab?.title || (restored?.window ? "окно" : "");
+      return { ok: true, message: title ? `Вернул закрытую вкладку «${title.slice(0, 120)}»` : "Вернул последнюю закрытую вкладку" };
+    }
+    const target = await tabFromMessage(message);
+    const title = `«${(target.title || "Без названия").slice(0, 120)}»`;
+    if (kind === "pin" || kind === "unpin") {
+      await chrome.tabs.update(target.id, { pinned: kind === "pin" });
+      return { ok: true, message: kind === "pin" ? `Закрепил вкладку ${title}` : `Открепил вкладку ${title}` };
+    }
+    if (kind === "close_others") {
+      const others = (await chrome.tabs.query({ windowId: target.windowId })).filter((tab) => tab.id !== target.id && !tab.pinned);
+      if (!others.length) return { ok: true, message: "В этом окне нет других незакреплённых вкладок" };
+      await removeTabsAndConfirm(others.map((tab) => tab.id));
+      return { ok: true, message: `Закрыл ${others.length} вкладок в окне; оставил ${title} и закреплённые` };
+    }
+    if (kind === "back" || kind === "forward") {
+      try {
+        await (kind === "back" ? chrome.tabs.goBack(target.id) : chrome.tabs.goForward(target.id));
+      } catch (_) {
+        throw new Error(kind === "back" ? "Назад перейти некуда: это первая страница вкладки." : "Вперёд перейти некуда.");
+      }
+      return { ok: true, message: kind === "back" ? "Вернулся на предыдущую страницу" : "Перешёл вперёд" };
+    }
+    if (kind === "reload") {
+      await chrome.tabs.reload(target.id);
+      return { ok: true, message: `Обновил вкладку ${title}` };
+    }
+    throw new Error("Неизвестное действие с вкладкой");
+  }
+  if (action === "media_control") {
+    const command = String(message.command || "");
+    if (!["play", "pause", "mute", "unmute", "next", "previous"].includes(command)) throw new Error("Команда: play, pause, mute, unmute, next или previous");
+    if (command === "next" || command === "previous") {
+      const tab = Number.isInteger(message.chrome_tab_id) ? await existingTab(message.chrome_tab_id) : await currentActiveTab();
+      requireWebTab(tab);
+      const [injected] = await injectScript({ target: { tabId: tab.id }, args: [command], func: stepVideoFeed });
+      if (!injected?.result?.ok) throw new Error(injected?.result?.error || "Не удалось пролистать ленту");
+      return { ok: true, message: command === "next" ? "Дальше" : "Назад" };
+    }
+    let targets;
+    if (Number.isInteger(message.chrome_tab_id)) {
+      targets = [await existingTab(message.chrome_tab_id)];
+    } else if (command === "pause" || command === "mute") {
+      const audible = await chrome.tabs.query({ audible: true });
+      targets = audible.length ? audible : [await currentActiveTab()];
+    } else if (command === "unmute") {
+      const muted = (await chrome.tabs.query({})).filter((tab) => tab.mutedInfo?.muted);
+      targets = muted.length ? muted : [await currentActiveTab()];
+    } else {
+      targets = [await currentActiveTab()];
+    }
+    const names = targets.map((tab) => `«${(tab.title || "Без названия").slice(0, 80)}»`).join(", ");
+    if (command === "mute" || command === "unmute") {
+      for (const tab of targets) await chrome.tabs.update(tab.id, { muted: command === "mute" });
+      return { ok: true, message: `${command === "mute" ? "Выключил" : "Включил"} звук: ${names}` };
+    }
+    let changed = 0;
+    let found = false;
+    const errors = [];
+    for (const tab of targets) {
+      requireWebTab(tab);
+      const injected = await injectScript({ target: { tabId: tab.id, allFrames: true }, args: [command], func: controlPageMedia });
+      for (const { result } of injected) {
+        if (!result?.found) continue;
+        found = true;
+        changed += result.changed || 0;
+        if (result.error) errors.push(result.error);
+      }
+    }
+    if (!found) throw new Error(`На вкладке ${names} не найдено видео или аудио.`);
+    if (!changed && errors.length) throw new Error(errors[0]);
+    if (!changed) return { ok: true, message: command === "pause" ? `Уже на паузе: ${names}` : `Уже воспроизводится: ${names}` };
+    return { ok: true, message: `${command === "pause" ? "Поставил на паузу" : "Включил воспроизведение"}: ${names}` };
+  }
+  if (action === "youtube_play") {
+    const query = String(message.query || "").trim();
+    if (!query || query.length > 200) throw new Error("Скажите, что включить на YouTube");
+    const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+    const active = await currentActiveTab().catch(() => null);
+    let tabId;
+    if (active && /^https:\/\/(?:www\.|m\.)?youtube\.com\//i.test(active.url || "")) {
+      tabId = active.id;
+      await chrome.tabs.update(tabId, { url: searchUrl });
+    } else {
+      tabId = (await chrome.tabs.create({ url: searchUrl, active: true })).id;
+    }
+    await waitForTabComplete(tabId, deadlineMs, 12000);
+    let items = [];
+    const until = Math.min(Date.now() + 10000, deadlineMs ? deadlineMs - 1500 : Infinity);
+    while (Date.now() < until) {
+      items = (await mediaItemsInTab(tabId).catch(() => [])).filter((item) => /\/watch\?/i.test(item.href) && !item.shorts);
+      if (items.length) break;
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+    if (!items.length) throw new Error(`Поиск YouTube «${query}» открыт, но видео в результатах не появились. Скажите «включи первое видео», когда страница загрузится.`);
+    const chosen = items[0];
+    await chrome.tabs.update(tabId, { url: chosen.href, active: true });
+    return { ok: true, message: `Включаю на YouTube: «${chosen.title}»` };
+  }
   let tab;
-  if ((action === "type_text" || action === "clear_text" || action === "find_text_fields" || action === "find_page_text" || action === "click_text" || action === "list_page_elements" || action === "click_page_element") && Number(message.tab_number) > 0) {
+  if (Number.isInteger(message.chrome_tab_id) && ["list_media", "play_media", "read_page", "submit_field", "scroll_page"].includes(action)) {
+    tab = await existingTab(message.chrome_tab_id);
+  } else if ((action === "type_text" || action === "clear_text" || action === "find_text_fields" || action === "find_page_text" || action === "click_text" || action === "list_page_elements" || action === "click_page_element" || action === "submit_field") && Number(message.tab_number) > 0) {
     const tabs = await orderedTabs();
     tab = tabs[Number(message.tab_number) - 1];
     if (!tab || typeof tab.id !== "number") throw new Error("Вкладка с таким номером не найдена. Сначала обновите список вкладок.");
@@ -771,11 +1137,47 @@ async function handleCommand(message) {
     tab = await currentActiveTab();
   }
   requireWebTab(tab);
-  if (["type_text", "clear_text", "find_text_fields", "find_page_text", "click_text", "list_page_elements", "click_page_element", "read_page"].includes(action)) {
+  if (["type_text", "clear_text", "find_text_fields", "find_page_text", "click_text", "list_page_elements", "click_page_element", "read_page", "submit_field", "list_media", "play_media"].includes(action)) {
     await blockSensitivePage(tab.id, tab.url);
   }
+  if (action === "list_media") {
+    const items = await mediaItemsInTab(tab.id);
+    await rememberMedia(tab.id, items.slice(0, 15));
+    return { ok: true, tab_id: tab.id, title: tab.title || "", url: tab.url || "", items: items.slice(0, 15).map((item, index) => ({ number: index + 1, title: item.title, shorts: item.shorts })) };
+  }
+  if (action === "play_media") {
+    const number = Number(message.number) || 0;
+    const remembered = number > 0 ? await rememberedMedia(tab.id) : null;
+    const items = remembered || await mediaItemsInTab(tab.id);
+    if (!items.length) throw new Error("На странице не найдено ссылок на видео или музыку.");
+    let chosen;
+    let note = "";
+    if (remembered) {
+      chosen = remembered[number - 1];
+      if (!chosen) throw new Error(`В показанном списке нет видео №${number}. Покажите список видео заново.`);
+    } else if (number > 0) {
+      chosen = items[number - 1];
+      const expected = String(message.expected_title || "");
+      if (!chosen || (expected && redactPageText(chosen.title) !== expected)) {
+        throw new Error("Список на странице изменился. Покажите список видео заново.");
+      }
+    } else {
+      const picked = pickMedia(items, String(message.query || ""));
+      if (!picked) throw new Error(`На странице нет видео, похожего на «${message.query}». Можно сказать «покажи видео на странице».`);
+      chosen = picked.item;
+      if (picked.alternatives) note = ` Похожих вариантов ещё ${picked.alternatives}.`;
+    }
+    await chrome.tabs.update(tab.id, { url: chosen.href });
+    return { ok: true, message: `Включаю «${chosen.title}».${note}` };
+  }
+  if (action === "submit_field") {
+    const target = { tabId: tab.id };
+    if (Number.isInteger(Number(message.frame_id)) && Number(message.frame_id) >= 0) target.frameIds = [Number(message.frame_id)];
+    const [injected] = await injectScript({ target, args: [Number(message.field_number) || 0], func: submitFocusedField });
+    return injected?.result || { ok: false, error: "Не удалось нажать Enter в поле" };
+  }
   if (action === "list_page_elements") {
-    const injected = await chrome.scripting.executeScript({
+    const injected = await injectScript({
       target: { tabId: tab.id, allFrames: Boolean(message.include_frames) },
       args: [String(message.query || "")],
       func: (query) => {
@@ -858,7 +1260,7 @@ async function handleCommand(message) {
     if (!Number.isInteger(frameId) || frameId < 0) throw new Error("Укажите frame_id элемента из browser_list_page_elements");
     if (!expectedText) throw new Error("Укажите expected_text из browser_list_page_elements, чтобы проверить, что список не устарел");
     const before = await readPageOpenState(tab.id, frameId, "scan", elementNumber, deadlineMs, expectedText);
-    const [clicked] = await chrome.scripting.executeScript({
+    const [clicked] = await injectScript({
       target: { tabId: tab.id, frameIds: [frameId] },
       args: ["scan", elementNumber, expectedText, deadlineMs],
       func: clickMarkedElement
@@ -870,7 +1272,7 @@ async function handleCommand(message) {
     return { ok: true, clicked: true, page_change_confirmed: verification.confirmed, message: `${outcome} Клик отправлен по выбранному элементу №${elementNumber}.`, title: tab.title || "" };
   }
   if (action === "find_text_fields") {
-    const injected = await chrome.scripting.executeScript({
+    const injected = await injectScript({
       target: { tabId: tab.id, allFrames: true },
       func: () => {
         const visible = (el) => {
@@ -905,7 +1307,7 @@ async function handleCommand(message) {
   if (action === "find_page_text") {
     const query = String(message.query || "").trim();
     if (!query) throw new Error("Укажите слово или фразу для поиска на странице");
-    const injected = await chrome.scripting.executeScript({
+    const injected = await injectScript({
       target: { tabId: tab.id, allFrames: true },
       args: [query],
       func: safePageSnapshot
@@ -923,8 +1325,9 @@ async function handleCommand(message) {
     return { ok: true, query, found, frames };
   }
   if (action === "read_page") {
-    const [injected] = await chrome.scripting.executeScript({
+    const [injected] = await injectScript({
       target: { tabId: tab.id },
+      args: ["", Number(message.offset) || 0],
       func: safePageSnapshot
     });
     if (injected?.result?.blocked) throw new Error("Содержимое защищённой страницы не передаётся в Astra.");
@@ -939,7 +1342,7 @@ async function handleCommand(message) {
     const target = { tabId: tab.id };
     if (Number.isInteger(requestedFrame) && requestedFrame >= 0) target.frameIds = [requestedFrame];
     else target.allFrames = true;
-    const scanned = await chrome.scripting.executeScript({ target, args: [wanted, matchNumber], func: inspectClickableText });
+    const scanned = await injectScript({ target, args: [wanted, matchNumber], func: inspectClickableText });
     const choice = chooseScannedMatch(scanned, wanted);
     if (choice.ambiguous) return { ok: true, clicked: false, ambiguous: true, message: choice.message };
     if (choice.error) throw new Error(choice.error);
@@ -947,7 +1350,7 @@ async function handleCommand(message) {
     const frameId = choice.match.frameId;
     const elementId = found.element_id;
     const before = await readPageOpenState(tab.id, frameId, "match", elementId, deadlineMs, found.matched_text || found.text);
-    const [clicked] = await chrome.scripting.executeScript({
+    const [clicked] = await injectScript({
       target: { tabId: tab.id, frameIds: [frameId] },
       args: ["match", elementId, found.text, deadlineMs, found.matched_text],
       func: clickMarkedElement
@@ -965,7 +1368,7 @@ async function handleCommand(message) {
     if (Number.isInteger(Number(message.frame_id)) && Number(message.frame_id) >= 0) {
       target.frameIds = [Number(message.frame_id)];
     }
-    const [injected] = await chrome.scripting.executeScript({
+    const [injected] = await injectScript({
       target,
       args: [String(message.text || ""), String(message.field || ""), Number(message.field_number) || 0, action === "clear_text"],
       func: (text, wantedField, fieldNumber, clear) => {
@@ -1065,9 +1468,21 @@ async function handleCommand(message) {
     return injected.result;
   }
   if (action === "scroll_page") {
-    const direction = message.direction === "up" ? -1 : 1;
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, args: [direction], func: (dir) => window.scrollBy({ top: dir * Math.max(300, window.innerHeight * 0.7), behavior: "smooth" }) });
-    return { ok: true, message: direction > 0 ? "Прокрутил страницу вниз" : "Прокрутил страницу вверх" };
+    const direction = ["up", "down", "top", "bottom"].includes(message.direction) ? message.direction : "down";
+    await injectScript({
+      target: { tabId: tab.id },
+      args: [direction],
+      func: (dir) => {
+        if (dir === "top" || dir === "bottom") {
+          const root = document.scrollingElement || document.documentElement;
+          window.scrollTo({ top: dir === "top" ? 0 : root.scrollHeight, behavior: "smooth" });
+        } else {
+          window.scrollBy({ top: (dir === "up" ? -1 : 1) * Math.max(300, window.innerHeight * 0.7), behavior: "smooth" });
+        }
+      }
+    });
+    const messages = { up: "Прокрутил страницу вверх", down: "Прокрутил страницу вниз", top: "Прокрутил в начало страницы", bottom: "Прокрутил в конец страницы" };
+    return { ok: true, message: messages[direction] };
   }
   throw new Error("Неизвестное действие браузера");
 }

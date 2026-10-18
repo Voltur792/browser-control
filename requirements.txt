@@ -2,3 +2,6 @@ astra-plugin-sdk>=0.6,<0.7
 grpcio>=1.60.0
 grpcio-tools>=1.60.0
 protobuf>=4.25.0
+vosk>=0.3.45
+sounddevice>=0.5
+numpy>=2.0

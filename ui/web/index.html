@@ -48,6 +48,19 @@
           <button type="button" data-browser="firefox" aria-pressed="false">Firefox</button>
         </div>
       </div>
+      <span class="connection-divider" aria-hidden="true"></span>
+      <div class="browser-picker search-picker">
+        <span class="browser-caption">Поиск:</span>
+        <button id="search-trigger" class="browser-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+          <span id="search-current">Яндекс</span><span aria-hidden="true">⌄</span>
+        </button>
+        <div id="search-options" class="browser-options" role="listbox" aria-label="Выберите поисковик" hidden>
+          <button type="button" data-search="yandex" aria-pressed="true">Яндекс</button>
+          <button type="button" data-search="google" aria-pressed="false">Google</button>
+          <button type="button" data-search="duckduckgo" aria-pressed="false">DuckDuckGo</button>
+          <button type="button" data-search="bing" aria-pressed="false">Bing</button>
+        </div>
+      </div>
       <span class="plugin-state" role="status" aria-live="polite"><span id="plugin-dot" class="plugin-dot" aria-hidden="true"></span><span id="plugin-title">Плагин Astra загружается…</span></span>
     </section>
 
@@ -70,7 +83,23 @@
         <li class="advanced-example" hidden><span class="command">Найди на странице слово «мессенджер»</span></li>
         <li class="advanced-example" hidden><span class="command">Сотри текст из поля сообщения</span></li>
         <li class="advanced-example" hidden><span class="command">Закрой в окне 2 вкладки 19 и 20</span></li>
+        <li class="advanced-example" hidden><span class="command">Включи на ютубе лофи для работы</span></li>
+        <li class="advanced-example" hidden><span class="command">Включи видео про котиков на этой странице</span></li>
+        <li class="advanced-example" hidden><span class="command">Поставь на паузу</span></li>
+        <li class="advanced-example" hidden><span class="command">Выключи звук на вкладке с музыкой</span></li>
+        <li class="advanced-example" hidden><span class="command">Вернись назад</span></li>
+        <li class="advanced-example" hidden><span class="command">Верни закрытую вкладку</span></li>
+        <li class="advanced-example" hidden><span class="command">Читай страницу дальше</span></li>
       </ul>
+    </section>
+
+    <section id="shorts-section" class="examples shorts-section" aria-labelledby="shorts-title" hidden>
+      <h2 id="shorts-title">Режим просмотра шортсов</h2>
+      <p>Скажите «Астра, просмотр шортсов», и дальше без «Астра»: <strong>дальше</strong>, <strong>назад</strong>, <strong>пауза</strong>, <strong>продолжи</strong>, <strong>выключи звук</strong>, <strong>включи звук</strong>. Выключить — «закончить просмотр» или 15 минут тишины.</p>
+      <div class="shorts-row">
+        <span class="extension-state" role="status" aria-live="polite"><span id="shorts-dot" class="connection-dot" aria-hidden="true"></span><strong id="shorts-state">Выключен</strong></span>
+        <button id="shorts-toggle" class="button button-secondary" type="button">Включить</button>
+      </div>
     </section>
 
     <section id="extension-guide" class="extension-guide" aria-labelledby="guide-title" hidden>

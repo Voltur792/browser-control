@@ -7,10 +7,14 @@ from typing import Any
 from urllib.parse import urlsplit
 
 
+# Bare words such as "code" or "код" are deliberately absent: they hid ordinary
+# titles like "Visual Studio Code" or "Исходный код". A code is caught by its
+# label ("Код: …", "Ваш код …") or by an explicit phrase instead.
 _SENSITIVE = re.compile(
-    r"парол|одноразов|\bкод\b|код\s*(?:подтвержден|доступа|безопасност)|номер\s*карт|"
-    r"срок\s*действия|секретн|токен|password|passcode|verification\s*code|"
-    r"security\s*code|one.?time.?code|\bcode\b|\botp\b|\bcvv\b|\bcvc\b|\bpin\b|"
+    r"парол|одноразов|(?:ваш|your|sms|смс)\s*(?:код|code)|^\s*(?:код|code|pin|пин)\s*[:：#№]|"
+    r"код\s*(?:подтвержден|доступа|безопасност|из\s*смс)|пин.?код|pin.?code|\bpin\s*[:：]|номер\s*карт|"
+    r"срок\s*действия|секретн|токен|password|passcode|verification\s*code|confirmation\s*code|"
+    r"security\s*code|auth(?:entication)?\s*code|one.?time.?code|\botp\b|\bcvv\b|\bcvc\b|"
     r"api.?key|secret|access.?token|card\s*number|expiry",
     re.IGNORECASE,
 )
@@ -18,6 +22,8 @@ _URL = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
 _EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 _LONG_KEY = re.compile(r"\b(?=[A-Za-z0-9_-]{24,}\b)(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{24,}\b")
 _DIGITS = re.compile(r"(?:\d[ -]?){3,19}")
+# Years, prices and counters stay readable; codes, card and phone numbers do not.
+_MIN_HIDDEN_DIGITS = 6
 
 
 def public_site(value: str) -> str:
@@ -47,7 +53,7 @@ def redact_text(value: str, *, drop_sensitive_lines: bool = True) -> str:
         line = _URL.sub(lambda match: public_site(match.group()), line)
         line = _EMAIL.sub("[адрес почты скрыт]", line)
         line = _LONG_KEY.sub("[ключ скрыт]", line)
-        line = _DIGITS.sub(lambda match: "[число скрыто]" if len(re.sub(r"\D", "", match.group())) >= 3 else match.group(), line)
+        line = _DIGITS.sub(lambda match: "[число скрыто]" if len(re.sub(r"\D", "", match.group())) >= _MIN_HIDDEN_DIGITS else match.group(), line)
         lines.append(line)
     return "\n".join(lines)
 

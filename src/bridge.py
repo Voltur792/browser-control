@@ -54,8 +54,11 @@ class _Client:
         self.conn = conn
         self.browser = browser
         self.browser_code = browser_code
+        self.extension_version: str | None = None
         self.send_lock = threading.Lock()
         self.connected_at = time.time()
+        # Chrome tab ids are only meaningful within one browser connection.
+        self.session = uuid.uuid4().hex
 
     def send(self, payload: dict[str, Any]) -> None:
         raw = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
@@ -144,17 +147,36 @@ class BrowserBridge:
                             bridge._fail_pending("Расширение отключилось")
 
         class Server(socketserver.ThreadingTCPServer):
-            allow_reuse_address = True
             daemon_threads = True
 
+            def server_bind(self) -> None:
+                # On Windows SO_REUSEADDR lets a second process bind the same port and
+                # steal connections; claim it exclusively so a clash fails loudly.
+                if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                    self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+                elif hasattr(socket, "SO_REUSEADDR"):
+                    self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                super().server_bind()
+
+        if self._server is not None:
+            return
         self._server = Server(("127.0.0.1", PORT), Handler)
         threading.Thread(target=self._server.serve_forever, name="browser-control-bridge", daemon=True).start()
         log.info("Browser bridge listening on 127.0.0.1:%s", PORT)
+
+    @property
+    def running(self) -> bool:
+        return self._server is not None
+
+    @property
+    def port(self) -> int:
+        return self._server.server_address[1] if self._server is not None else PORT
 
     def stop(self) -> None:
         if self._server is not None:
             self._server.shutdown()
             self._server.server_close()
+            self._server = None
 
     def status(self) -> dict[str, Any]:
         with self._lock:
@@ -165,7 +187,9 @@ class BrowserBridge:
                 "connected": True,
                 "browser": client.browser,
                 "browser_code": client.browser_code,
+                "extension_version": client.extension_version,
                 "connected_since": int(client.connected_at),
+                "session": client.session,
             }
 
     def _on_host_message(self, message: dict[str, Any], client: _Client) -> None:
@@ -177,6 +201,8 @@ class BrowserBridge:
             if kind == "browser_info":
                 client.browser = str(message.get("browser", "unknown"))[:80]
                 client.browser_code = str(message.get("browser_code", "unknown"))[:24]
+                version = message.get("version")
+                client.extension_version = str(version)[:24] if isinstance(version, str) else None
             elif kind == "result":
                 request_id = str(message.get("id", ""))
                 pair = self._pending.pop(request_id, None)

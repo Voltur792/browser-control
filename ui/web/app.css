@@ -41,6 +41,8 @@ h1 { margin-bottom: 0; font-size: 25px; line-height: 1.1; font-weight: 720; lett
 .connection-divider { width: 1px; height: 22px; background: var(--line); }
 .browser-picker { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; }
 .browser-caption { color: var(--muted); }
+.search-picker .browser-options { width: 180px; }
+.shorts-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
 .browser-trigger { display: inline-flex; align-items: center; gap: 8px; padding: 4px 0; color: var(--text); border: 0; background: transparent; font: inherit; font-weight: 650; cursor: pointer; }
 .browser-trigger span:last-child { color: var(--muted); font-size: .8em; }
 .browser-options { position: absolute; z-index: 5; top: calc(100% + 8px); left: 0; width: 230px; padding: 5px; border: 1px solid var(--line); border-radius: 12px; background: var(--color-surface, #25264f); box-shadow: 0 8px 24px rgba(0,0,0,.24); }

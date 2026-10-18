@@ -1,24 +1,26 @@
-# Build artifacts
+# Build artifacts and local tooling
 *.astraplugin
 /.appdata/
 /.dotnet-cli/
+/.nuget/
 /.nuget-packages/
-/tests/
-/scripts/
-/DESIGN.md
-/UX-CONTRACT.md
+browser-extension/native-host/bin/
+browser-extension/native-host/obj/
 browser-extension/native-host/portable/
 browser-extension/native-host/publish/
 browser-extension/native-host/**/*.pdb
 browser-extension/native-host/**/*.dll
 browser-extension/native-host/**/*.deps.json
 browser-extension/native-host/**/*.runtimeconfig.json
-/.dotnet-cli/
-/.nuget/
-/.appdata/
-browser-extension/native-host/bin/
-browser-extension/native-host/obj/
 
+# Local working files, not part of the plugin
+/scripts/
+/design/
+/DESIGN.md
+/UX-CONTRACT.md
+
+# Python and Astra's per-folder environment
 __pycache__/
 *.pyc
 .venv/
+/.astra-venv.json
