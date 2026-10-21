@@ -95,6 +95,9 @@ def model_dirs() -> list[Path]:
         dirs.append(Path(os.environ["LOCALAPPDATA"]) / "BrowserControl" / "models")
     if os.environ.get("APPDATA"):
         dirs.append(Path(os.environ["APPDATA"]) / "voice-text-input" / "models")
+    if os.name != "nt":
+        from .platform_support import user_data
+        dirs += [user_data() / "BrowserControl/models", user_data() / "voice-text-input/models"]
     return dirs
 
 

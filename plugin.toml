@@ -1,7 +1,7 @@
 [plugin]
 id = "browser-control"
 name = "Browser Control"
-version = "1.0.0"
+version = "1.1.0"
 description = "Voice control for your browser: open sites and search, manage tabs, play videos and scroll Shorts hands-free through an optional local extension."
 author = "Voltur"
 license = "MIT"
@@ -30,5 +30,5 @@ actions = true
 # The plugin uses only its own loopback bridge and the native browser extension.
 
 [platform]
-os = ["windows"]
+os = ["windows", "linux", "macos"]
 arch = ["x86_64"]

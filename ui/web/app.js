@@ -197,7 +197,7 @@ $("open-folder").addEventListener("click", async () => {
   try {
     const result = await callBackend("browser_open_extension_folder");
     if (!result.ok) throw new Error(result.error || "Не удалось открыть папку расширения");
-    showFeedback("Открыл папку расширения в Проводнике.");
+    showFeedback("Открыл папку расширения.");
   } catch (error) {
     showFeedback(String(error.message || error), true);
   }

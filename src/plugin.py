@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import urllib.parse
 import webbrowser
@@ -57,7 +58,7 @@ def _extension_folder() -> Path:
 
 
 def _setup_installer() -> Path:
-    source_installer = EXTENSION_DIR.parent / "install-extension.cmd"
+    source_installer = EXTENSION_DIR.parent / "install-extension.cmd" if sys.platform == "win32" else EXTENSION_DIR / "install-native-host.py"
     if source_installer.is_file():
         return source_installer
     archive = EXTENSION_DIR.parent / "ui" / "web" / "extension-setup.zip"
@@ -67,6 +68,8 @@ def _setup_installer() -> Path:
     allowed = {
         "install-extension.cmd", "install-extension.ps1",
         "browser-extension/install-native-host.ps1",
+        "browser-extension/install-native-host.py",
+        "browser-extension/native-host/posix_host.py",
         "browser-extension/manifest.json", "browser-extension/background.js",
         "browser-extension/popup.html", "browser-extension/popup.css",
         "browser-extension/popup.js",
@@ -87,7 +90,7 @@ def _setup_installer() -> Path:
             target.parent.mkdir(parents=True, exist_ok=True)
             with package.open(name) as source, target.open("wb") as destination:
                 shutil.copyfileobj(source, destination)
-    return setup_root / "install-extension.cmd"
+    return setup_root / "install-extension.cmd" if sys.platform == "win32" else setup_root / "browser-extension/install-native-host.py"
 
 
 def _load_settings() -> dict[str, str]:
@@ -132,6 +135,21 @@ def _normalize_url(value: str) -> str:
 
 
 def _browser_candidates(browser: str) -> list[Path]:
+    import sys
+    import shutil
+    if sys.platform != "win32":
+        names = {"yandex": ["yandex-browser", "yandex-browser-stable"], "chrome": ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"],
+                 "edge": ["microsoft-edge", "microsoft-edge-stable"], "brave": ["brave-browser", "brave"],
+                 "opera": ["opera"], "vivaldi": ["vivaldi", "vivaldi-stable"], "firefox": ["firefox"]}.get(browser, [])
+        found = [Path(p) for name in names if (p := shutil.which(name))]
+        if sys.platform == "darwin":
+            applications = {"yandex": ("Yandex", "Yandex"), "chrome": ("Google Chrome", "Google Chrome"),
+                            "edge": ("Microsoft Edge", "Microsoft Edge"), "brave": ("Brave Browser", "Brave Browser"),
+                            "opera": ("Opera", "Opera"), "vivaldi": ("Vivaldi", "Vivaldi"), "firefox": ("Firefox", "firefox")}
+            if browser in applications:
+                app, executable = applications[browser]
+                found += [base / f"{app}.app/Contents/MacOS/{executable}" for base in (Path("/Applications"), Path.home() / "Applications")]
+        return found
     local = Path(os.environ.get("LOCALAPPDATA", ""))
     program_files = Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
     program_files_x86 = Path(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"))
@@ -331,7 +349,8 @@ class BrowserControl(Plugin):
         if not folder.is_dir():
             return {"ok": False, "error": "Папка расширения не найдена рядом с плагином"}
         try:
-            subprocess.Popen(["explorer.exe", str(folder)])
+            command = "explorer.exe" if sys.platform == "win32" else "/usr/bin/open" if sys.platform == "darwin" else "xdg-open"
+            subprocess.Popen([command, str(folder)])
             return {"ok": True}
         except OSError as exc:
             return {"ok": False, "error": str(exc)}
@@ -343,12 +362,36 @@ class BrowserControl(Plugin):
             return {"ok": False, "error": "Выберите Chromium-браузер для установки расширения"}
         try:
             installer = _setup_installer()
+            if sys.platform != "win32":
+                subprocess.run([sys.executable, str(installer)], cwd=str(installer.parent),
+                               capture_output=True, timeout=20, check=True)
+                # Copy unpacked extension beside the stable registered host;
+                # loading it from a replaceable plugin bundle loses it on update.
+                source = installer.parent
+                if not (source / "manifest.json").is_file():
+                    raise ValueError("Файлы расширения не найдены")
+                INSTALLED_EXTENSION_DIR.mkdir(parents=True, exist_ok=True)
+                for name in ("manifest.json", "background.js", "popup.html", "popup.css", "popup.js", "icons"):
+                    value = source / name
+                    if value.is_dir():
+                        shutil.copytree(value, INSTALLED_EXTENSION_DIR / name, dirs_exist_ok=True)
+                    else:
+                        shutil.copyfile(value, INSTALLED_EXTENSION_DIR / name)
+                chosen = preferred if preferred != "default" else "chrome"
+                executable = next((p for p in _browser_candidates(chosen) if p.is_file()), None)
+                if executable:
+                    subprocess.Popen([str(executable), "chrome://extensions"])
+                command = "/usr/bin/open" if sys.platform == "darwin" else "xdg-open"
+                subprocess.Popen([command, str(INSTALLED_EXTENSION_DIR)])
+                return {"ok": True, "message": "Мост установлен. Включите режим разработчика в разделе расширений браузера и загрузите распакованное расширение из открывшейся папки: " + str(INSTALLED_EXTENSION_DIR)}
             subprocess.Popen(
                 ["cmd.exe", "/c", str(installer), "-Browser", preferred],
                 cwd=str(installer.parent),
                 creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
             )
             return {"ok": True, "message": "Установщик запущен. Завершите добавление расширения в открывшемся браузере."}
+        except subprocess.SubprocessError:
+            return {"ok": False, "error": "Не удалось зарегистрировать локальный мост. Проверьте Python и права записи в профиль пользователя."}
         except (OSError, ValueError, zipfile.BadZipFile) as exc:
             return {"ok": False, "error": str(exc)}
 

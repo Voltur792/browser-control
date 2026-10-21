@@ -23,8 +23,9 @@ MAX_LINE = 1_000_000
 
 
 def data_dir() -> Path:
-    root = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-    return Path(root) / "BrowserControl"
+    from .platform_support import user_data
+    root = Path(os.environ["LOCALAPPDATA"]) if os.name == "nt" and os.environ.get("LOCALAPPDATA") else user_data()
+    return root / "BrowserControl"
 
 
 def secret_path() -> Path:
@@ -36,7 +37,10 @@ def load_or_create_secret() -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     # A new bridge session invalidates tokens retained by previous local clients.
     value = secrets.token_urlsafe(48)
-    path.write_text(value, encoding="utf-8")
+    with open(path, "w", encoding="utf-8", opener=lambda name, flags: os.open(name, flags, 0o600)) as stream:
+        stream.write(value)
+    if os.name != "nt":
+        path.chmod(0o600)
     return value
 
 
